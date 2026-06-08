@@ -11,6 +11,9 @@
 # Safe to re-run. Backs up before editing. Never enters your credentials.
 # Full log: $LOG
 # ============================================================================
+# Re-exec under bash if invoked via `sh setup.sh` (POSIX sh chokes on arrays/local/pipefail).
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+
 set -uo pipefail
 
 # ---- constants -------------------------------------------------------------
@@ -805,6 +808,7 @@ phase_zed(){
   step "Zed editor config"
   if [ -d /Applications/Zed.app ] || have zed; then
     if [ "$DRY_RUN" = 1 ]; then printf '  %s[dry-run]%s merge ollama models into Zed settings\n' "$C" "$X"
+    elif ! have node; then warn "Zed present but Node missing — skipping Zed merge (see SETUP.md for the manual snippet)"
     else merge_zed && ok "Zed ollama models wired" || warn "Zed merge skipped (settings unparseable — see SETUP.md to add manually)"; fi
   else ok "Zed not installed — skipping"; fi
 }
@@ -842,7 +846,9 @@ phase_deploy(){
   touch "$CLAUDE_DIR/CLAUDE.md"
   if grep -q "# modelRouting" "$CLAUDE_DIR/CLAUDE.md"; then ok "CLAUDE.md routing already present"; else claude_md_block >> "$CLAUDE_DIR/CLAUDE.md"; ok "CLAUDE.md routing appended"; fi
   # settings.json merge (node deep-merge; backs up first, never clobbers)
-  if merge_settings; then ok "settings.json hooks merged"; else warn "settings.json merge failed (invalid existing JSON?) — see $LOG"; fi
+  if ! have node; then
+    warn "Node not found — skipping settings.json merge. Install Node (re-run) to finish wiring hooks."
+  elif merge_settings; then ok "settings.json hooks merged"; else warn "settings.json merge failed (invalid existing JSON?) — see $LOG"; fi
   # CCR config — write only if missing (never clobber a real key)
   if [ -f "$CCR_DIR/config.json" ]; then ok "CCR config exists (left as-is)"; else write_ccr_config && ok "CCR config written (add your Anthropic key later)"; fi
 }
