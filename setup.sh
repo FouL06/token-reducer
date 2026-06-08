@@ -757,16 +757,35 @@ do_check(){
 # ============================================================================
 # INSTALL PHASES
 # ============================================================================
+refresh_path(){ for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$p" ] && eval "$("$p" shellenv)" 2>/dev/null; done; hash -r 2>/dev/null || true; }
+
 phase_base(){
   step "Base tooling"
-  if ! xcode-select -p >/dev/null 2>&1; then act_install "Xcode CLT"; run xcode-select --install || warn "Trigger CLT install manually if a dialog didn't appear"; else ok "Xcode CLT"; fi
+  if ! xcode-select -p >/dev/null 2>&1; then act_install "Xcode CLT (a dialog may appear — accept it)"; run xcode-select --install || true; else ok "Xcode CLT"; fi
+
+  # Homebrew — try NON-INTERACTIVE; on a fresh Mac its installer still needs a sudo
+  # password, so if it can't self-install we say so clearly instead of cascading.
   if ! have brew; then
     act_install "Homebrew"
-    if [ "$DRY_RUN" != 1 ]; then /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/null >>"$LOG" 2>&1 || warn "Homebrew install hiccup — check $LOG"; fi
-    [ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
-  else ok "Homebrew"; fi
-  if ! have node; then act_install "Node.js"; retry run brew install node || warn "node install failed"; else ok "Node $(node -v)"; fi
-  if ! have pnpm; then act_install "pnpm"; retry run brew install pnpm || retry run npm i -g pnpm || warn "pnpm install failed"; else ok "pnpm $(pnpm -v)"; fi
+    [ "$DRY_RUN" != 1 ] && NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/null >>"$LOG" 2>&1
+    refresh_path
+  fi
+  if have brew; then ok "Homebrew present"
+  elif [ "$DRY_RUN" = 1 ]; then ok "(dry-run) Homebrew assumed"
+  else
+    warn "Homebrew couldn't auto-install (its installer needs an interactive sudo password)."
+    say "      → Install it once, then re-run this script:"
+    say "        /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+  fi
+
+  # Node (needed for ccusage + claude-code-router). Prefer brew; fall back to nvm guidance.
+  if ! have node && have brew; then act_install "Node.js"; retry run brew install node; refresh_path; fi
+  if have node; then ok "Node $(node -v 2>/dev/null)"
+  elif [ "$DRY_RUN" != 1 ]; then warn "Node not installed — ccusage + claude-code-router will be skipped. Install Node ('brew install node' or nvm), then re-run."; fi
+
+  # pnpm (optional — only for JS projects)
+  if ! have pnpm; then if have brew; then retry run brew install pnpm; elif have npm; then retry run npm i -g pnpm; fi; refresh_path; fi
+  have pnpm && ok "pnpm $(pnpm -v 2>/dev/null)" || warn "pnpm not installed (optional)"
 }
 act_install(){ printf '  %s*%s installing %s\n' "$C" "$X" "$1"; _log "installing $1"; }
 
@@ -817,7 +836,14 @@ phase_zed(){
 
 phase_token_installs(){
   step "Token-stack tools (rtk, context-mode, ccusage, ccr)"
-  if ! have rtk; then act_install "rtk"; retry run brew install rtk || { warn "brew rtk failed; trying installer"; [ "$DRY_RUN" = 1 ] || curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh >>"$LOG" 2>&1 || warn "rtk install failed"; }; else ok "rtk $(rtk --version 2>/dev/null)"; fi
+  # rtk — prefer brew bottle; fall back to the official installer (no brew needed).
+  if have rtk; then ok "rtk $(rtk --version 2>/dev/null)"
+  else
+    act_install "rtk"
+    [ "$DRY_RUN" != 1 ] && { have brew && retry run brew install rtk; refresh_path; }
+    if ! have rtk && [ "$DRY_RUN" != 1 ]; then curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh >>"$LOG" 2>&1 || true; refresh_path; fi
+    have rtk && ok "rtk installed" || { [ "$DRY_RUN" = 1 ] || warn "rtk install failed — needs Homebrew or the install.sh (see $LOG)"; }
+  fi
   # rtk init lays down RTK.md + @RTK.md import + a baseline hook (we upgrade the hook in deploy)
   have rtk && run rtk init -g --auto-patch
   if have claude; then
@@ -829,8 +855,12 @@ phase_token_installs(){
          run claude plugin install context-mode@context-mode --scope user ;;
     esac
   else warn "claude not found — install Claude Code, then re-run; skipping plugin"; fi
-  if ! have ccusage; then act_install "ccusage"; retry run npm i -g ccusage || warn "ccusage install failed"; else ok "ccusage $(ccusage --version 2>/dev/null | head -1)"; fi
-  if ! have ccr; then act_install "claude-code-router"; retry run npm i -g @musistudio/claude-code-router || warn "ccr install failed"; else ok "ccr $(ccr -v 2>/dev/null | head -1)"; fi
+  # ccusage + claude-code-router need npm (Node). Skip cleanly with guidance if absent.
+  if have npm; then
+    if have ccusage; then ok "ccusage present"; else act_install "ccusage"; retry run npm i -g ccusage; refresh_path; have ccusage && ok "ccusage installed" || warn "ccusage installed but not on PATH — add \"$(npm prefix -g 2>/dev/null)/bin\" to PATH"; fi
+    if have ccr; then ok "claude-code-router present"; else act_install "claude-code-router"; retry run npm i -g @musistudio/claude-code-router; refresh_path; have ccr && ok "ccr installed" || warn "ccr installed but not on PATH — add \"$(npm prefix -g 2>/dev/null)/bin\" to PATH"; fi
+  elif [ "$DRY_RUN" = 1 ]; then act_install "ccusage + claude-code-router (npm)"
+  else warn "npm not found — skipping ccusage + claude-code-router. Install Node, then re-run."; fi
 }
 
 phase_deploy(){
