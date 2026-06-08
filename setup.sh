@@ -916,8 +916,17 @@ do_verify(){
   local n; n=$(agent_count); [ "$n" -ge 11 ] && ok "agent fleet ($n)" || { warn "only $n/11 agents"; fails=$((fails+1)); }
   # settings json valid
   if have node && [ -f "$CLAUDE_DIR/settings.json" ]; then node -e "JSON.parse(require('fs').readFileSync('$CLAUDE_DIR/settings.json','utf8'))" 2>/dev/null && ok "settings.json valid JSON" || { warn "settings.json invalid JSON"; fails=$((fails+1)); }; fi
-  # ctx-doctor (best effort)
-  have claude && (claude --help >/dev/null 2>&1) && ok "claude CLI responds" || true
+  # context-mode (the "context aware" layer) — run its OWN headless doctor (checks
+  # the native SQLite/FTS5 module + hooks). This is the real test, not just "installed".
+  local cmb; cmb=$(ls -t "$CLAUDE_DIR"/plugins/cache/context-mode/context-mode/*/cli.bundle.mjs 2>/dev/null | head -1)
+  if [ -n "$cmb" ] && have node; then
+    local cmout; cmout=$(node "$cmb" doctor 2>&1)
+    case "$cmout" in
+      *FAIL*) warn "context-mode doctor: FAIL — run: node \"$cmb\" doctor  (FTS5/native module may need a plugin reinstall or Node update)"; fails=$((fails+1)) ;;
+      *PASS*) ok "context-mode healthy (FTS5 / native SQLite module works)" ;;
+      *) warn "context-mode doctor inconclusive — run: node \"$cmb\" doctor" ;;
+    esac
+  else warn "context-mode not found — install: claude plugin install context-mode@context-mode --scope user"; fi
   # session-economics runs
   [ -f "$SCRIPTS/session-economics.mjs" ] && node "$SCRIPTS/session-economics.mjs" >/dev/null 2>&1 && ok "session-economics runs" || true
   echo

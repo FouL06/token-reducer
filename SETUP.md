@@ -91,7 +91,10 @@ clobbering) and `~/.claude-code-router`.
 
 - **context-mode plugin** — sandboxes large tool output into SQLite/FTS5 and serves it back via
   search instead of dumping it into context:
-  `claude plugin marketplace add mksglu/context-mode && claude plugin install context-mode@context-mode --scope user`
+  `claude plugin marketplace add mksglu/context-mode && claude plugin install context-mode@context-mode --scope user`.
+  *Requires Claude Code (recent) + Node; it ships its **own native SQLite/FTS5 module** (not
+  `node:sqlite`). Verify it loaded with its headless doctor:
+  `node ~/.claude/plugins/cache/context-mode/context-mode/*/cli.bundle.mjs doctor` — `setup.sh verify` runs this.*
 - **Agent fleet** (`~/.claude/agents/*.md`) — 11 subagents: GATHER (`scanner`, `summarizer`,
   `doc-retriever`, `extractor`, `tool-caller`, `triager` — Haiku/local), BUILD (`planner`,
   `writer` — Sonnet), VERIFY (`verifier`, `test-runner` — Haiku; `reviewer` — Sonnet).
@@ -146,6 +149,7 @@ Be honest with the user about which pieces don't carry over rather than faking e
 | Subagent doesn't run on local under `ccr code` | Confirm the `<CCR-SUBAGENT-MODEL>` tag is the FIRST line of the agent's prompt and CCR is running (`ccr status`, port 3456). |
 | `ccr code` cloud routes error | Anthropic key still the placeholder — add it + `ccr restart`. |
 | Hooks/agents not active | Restart Claude Code; settings/agents load at session start. |
+| context-mode `ctx_*` tools missing/erroring | Its native SQLite/FTS5 module didn't load. Run `node ~/.claude/plugins/cache/context-mode/context-mode/*/cli.bundle.mjs doctor`; on a FAIL, reinstall the plugin (`claude plugin install context-mode@context-mode --scope user`) or update Node. `setup.sh verify` runs this check. |
 
 # Rollback
 
