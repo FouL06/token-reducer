@@ -849,15 +849,23 @@ phase_token_installs(){
     have rtk && ok "rtk installed" || { [ "$DRY_RUN" = 1 ] || warn "rtk install failed — needs Homebrew or the install.sh (see $LOG)"; }
   fi
   # rtk init lays down RTK.md + @RTK.md import + a baseline hook (we upgrade the hook to
-  # rtk-extend during deploy). Best-effort — rtk works without it; not all versions accept it.
-  have rtk && run rtk init -g 2>/dev/null || true
+  # rtk-extend during deploy). Best-effort; </dev/null so it can never hang on a prompt.
+  [ "$DRY_RUN" = 1 ] && act "rtk init -g" || { have rtk && rtk init -g </dev/null >>"$LOG" 2>&1 || true; }
   if have claude; then
     local pl; pl="$(claude plugin list 2>/dev/null)"
     case "$pl" in
       *context-mode*) ok "context-mode plugin present" ;;
       *) act_install "context-mode plugin"
-         run claude plugin marketplace add mksglu/context-mode
-         run claude plugin install context-mode@context-mode --scope user ;;
+         if [ "$DRY_RUN" = 1 ]; then act "claude plugin marketplace add mksglu/context-mode"; act "claude plugin install context-mode@context-mode --scope user"
+         else
+           # IMPORTANT: these are INTERACTIVE — Claude shows a one-time "trust this marketplace?"
+           # prompt. Run them DIRECTLY (visible), never via run() — run() redirects output to the
+           # log, which hides the prompt and hangs the whole script waiting on invisible input.
+           warn "Claude may now show a one-time 'trust marketplace' prompt — approve it to continue."
+           claude plugin marketplace add mksglu/context-mode || warn "marketplace add failed/declined — re-run after approving"
+           claude plugin install context-mode@context-mode --scope user || warn "context-mode install failed"
+           hash -r 2>/dev/null || true
+         fi ;;
     esac
   else warn "claude not found — install Claude Code, then re-run; skipping plugin"; fi
   # ccusage + claude-code-router need npm (Node). Skip cleanly with guidance if absent.
