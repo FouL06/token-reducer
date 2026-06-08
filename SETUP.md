@@ -7,17 +7,40 @@
 > don't move on until it passes. **Never enter the user's passwords, API keys, or logins** — when
 > a step needs one, stop and ask them.
 
-## TL;DR
+## ▶ What to run (agent quickstart)
+
+**If you are an AI agent asked to set this up on this machine, do exactly this:**
 
 ```bash
-./setup.sh            # check → install only what's missing → deploy → verify → ✅ ready
-./setup.sh check      # read-only: what's installed vs missing
-./setup.sh verify     # smoke tests only
-./setup.sh --dry-run  # print actions, change nothing
+# 0. Be in the repo (it contains setup.sh + this file). If you're not:
+git clone https://github.com/FouL06/token-reducer && cd token-reducer
+
+# 1. See what's installed vs missing (read-only, changes nothing):
+./setup.sh check
+
+# 2. Install everything missing + deploy all config (idempotent, backs up, never clobbers ~/.claude):
+./setup.sh
+
+# 3. Confirm it works (7 smoke tests — all should pass):
+./setup.sh verify
 ```
 
-Idempotent, resumable, non-destructive (backs up + merges, never clobbers `~/.claude`), and it
-never blocks on credentials — the free local stack works with no API key.
+`./setup.sh` (step 2) auto-installs and wires **all** of it: Homebrew, Node, pnpm, **Ollama + the
+3 models + the tuned model**, **rtk** (+ the `rtk-extend` hook), the **context-mode** plugin,
+**ccusage**, **claude-code-router**, the **11 subagents**, `~/.claude/CLAUDE.md` routing, the
+`settings.json` hooks, and the start/end scripts. It's resumable and safe to re-run.
+
+**Prereqs the script can't do for you (it will tell you):**
+- **Claude Code** must already be installed + logged in (needed for the context-mode plugin + the
+  agents). If `claude` is missing, install it first: <https://docs.anthropic.com/claude-code>.
+- After it finishes, it prints **optional credential steps** — the **Anthropic API key** for
+  `~/.claude-code-router/config.json` (only for free local routing via `ccr code`) and `claude`
+  login. **Do not enter these for the user** — surface them and let the user do it.
+- **Restart Claude Code** at the end so the new hooks/agents/CLAUDE.md load.
+
+Other modes: `./setup.sh --dry-run` (print actions, change nothing) · `./uninstall.sh` (clean
+revert). The sections below explain each piece and cover **manual / non-Claude-Code** (Codex,
+Cursor, Gemini) installs.
 
 ## What you get + why it works
 
