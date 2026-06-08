@@ -66,7 +66,7 @@ if [ "$DO_RESTORE" = 1 ]; then
   step "Restore newest backups"
   restore_newest "$CLAUDE_DIR/settings.json"
   restore_newest "$CLAUDE_DIR/CLAUDE.md"
-  say "\n${G}Restored. Restart Claude Code.${X}"
+  echo; say "${G}Restored. Restart Claude Code.${X}"
   exit 0
 fi
 

@@ -788,12 +788,14 @@ phase_ollama(){
     run ln -sf /Applications/Ollama.app/Contents/Resources/ollama "$dst/ollama"
   fi
   run launchctl setenv OLLAMA_KEEP_ALIVE 1h
-  if ! ollama_up; then
+  if ollama_up; then ok "Ollama server up ($(curl -s "$OLLAMA_URL/api/version"))"
+  elif [ "$DRY_RUN" = 1 ]; then act_install "would start Ollama server and wait for it"
+  else
     act_install "starting ollama server"
-    if [ "$DRY_RUN" != 1 ]; then open -a Ollama 2>/dev/null || OLLAMA_KEEP_ALIVE=1h nohup ollama serve >/tmp/ollama-serve.log 2>&1 & fi
+    open -a Ollama 2>/dev/null || OLLAMA_KEEP_ALIVE=1h nohup ollama serve >/tmp/ollama-serve.log 2>&1 &
     for _ in $(seq 1 30); do ollama_up && break; sleep 1; done
+    ollama_up && ok "Ollama server up" || warn "Ollama server still not reachable — check $LOG"
   fi
-  ollama_up && ok "Ollama server up ($(curl -s "$OLLAMA_URL/api/version"))" || warn "Ollama server still not reachable — check $LOG"
   # models
   for m in "${MODELS[@]}"; do
     if model_present "$m"; then ok "model $m present"; else act_install "pulling $m (~18GB)"; retry run ollama pull "$m" || warn "pull $m failed"; fi
@@ -938,7 +940,7 @@ case "$MODE" in
     phase_zed
     phase_token_installs
     phase_deploy
-    do_verify
+    if [ "$DRY_RUN" = 1 ]; then echo; say "(dry-run: skipping smoke tests — run ./setup.sh verify after a real install)"; else do_verify; fi
     finish
     ;;
 esac
