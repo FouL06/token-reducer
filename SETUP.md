@@ -172,7 +172,9 @@ Be honest with the user about which pieces don't carry over rather than faking e
 | Subagent doesn't run on local under `ccr code` | Confirm the `<CCR-SUBAGENT-MODEL>` tag is the FIRST line of the agent's prompt and CCR is running (`ccr status`, port 3456). |
 | `ccr code` cloud routes error | Anthropic key still the placeholder — add it + `ccr restart`. |
 | Hooks/agents not active | Restart Claude Code; settings/agents load at session start. |
+| Bash commands stall (~15s) or fail / get `rtk`-prefixed | Old `rtk-extend` hook + a broken/missing rtk. Re-run `./setup.sh` to deploy the **fail-safe** hook: if rtk can't run, it now passes the command through instantly (no stall, no rewrite) instead of breaking it. |
 | context-mode `ctx_*` tools missing/erroring | Its native SQLite/FTS5 module didn't load. Run `node ~/.claude/plugins/cache/context-mode/context-mode/*/cli.bundle.mjs doctor`; on a FAIL, reinstall the plugin (`claude plugin install context-mode@context-mode --scope user`) or update Node. `setup.sh verify` runs this check. |
+| context-mode hangs / blocks sessions | Unblock everything else immediately by disabling just it: `claude plugin disable context-mode@context-mode` then restart Claude Code. rtk, Ollama, the agents, and routing all work without it. Re-enable once its doctor passes. |
 
 # Rollback
 

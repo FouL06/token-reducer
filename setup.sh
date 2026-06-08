@@ -394,10 +394,14 @@ try { data = JSON.parse(raw || "{}"); } catch { process.exit(0); }
 const cmd = data?.tool_input?.command;
 if (!cmd || data?.tool_name !== "Bash") process.exit(0);
 
-const rtk = spawnSync("rtk", ["hook", "claude"], { input: raw, encoding: "utf8", timeout: 15000 });
+const rtk = spawnSync("rtk", ["hook", "claude"], { input: raw, encoding: "utf8", timeout: 5000 });
+// FAIL-SAFE: if rtk is missing/broken/timed out, do NOTHING — never break or stall the command.
+// (Without this, a broken rtk would still get prefixed onto commands below and break them.)
+if (rtk.error || rtk.status !== 0) process.exit(0);
 const rtkOut = (rtk.stdout || "").trim();
 if (rtkOut) { process.stdout.write(rtkOut); process.exit(0); }
 
+// rtk ran cleanly but passed this command through — extend coverage for SIMPLE commands only.
 const compound = /[|&;<>]|\$\(|`|\n|(^|\s)\w+=/.test(cmd);
 const first = cmd.trim().split(/\s+/)[0];
 if (!compound && EXTEND.has(first)) {
