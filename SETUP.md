@@ -70,7 +70,8 @@ array returns a `tool_calls` array (not text). `ollama show qwen3-coder:30b` lis
 point whichever tool you use at it.
 ```bash
 brew install rtk        # or: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
-rtk init -g --auto-patch
+rtk init -g             # wires rtk's hook + RTK.md into your assistant config (optional —
+                        # token-reducer installs its own rtk-extend hook regardless)
 ```
 **Verify:** `rtk gain` works; `echo '{"tool_name":"Bash","tool_input":{"command":"git status"}}' | rtk hook claude` returns an `updatedInput` rewrite.
 

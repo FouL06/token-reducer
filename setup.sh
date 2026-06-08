@@ -844,8 +844,9 @@ phase_token_installs(){
     if ! have rtk && [ "$DRY_RUN" != 1 ]; then curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh >>"$LOG" 2>&1 || true; refresh_path; fi
     have rtk && ok "rtk installed" || { [ "$DRY_RUN" = 1 ] || warn "rtk install failed — needs Homebrew or the install.sh (see $LOG)"; }
   fi
-  # rtk init lays down RTK.md + @RTK.md import + a baseline hook (we upgrade the hook in deploy)
-  have rtk && run rtk init -g --auto-patch
+  # rtk init lays down RTK.md + @RTK.md import + a baseline hook (we upgrade the hook to
+  # rtk-extend during deploy). Best-effort — rtk works without it; not all versions accept it.
+  have rtk && run rtk init -g 2>/dev/null || true
   if have claude; then
     local pl; pl="$(claude plugin list 2>/dev/null)"
     case "$pl" in
