@@ -1,0 +1,16 @@
+# build / download artifacts
+*.zip
+*.tar.gz
+
+# logs + backups the scripts create
+*.log
+*.bak
+*.bak.*
+
+# macOS / editor cruft
+.DS_Store
+.idea/
+.vscode/
+
+# node
+node_modules/
