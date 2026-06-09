@@ -14,6 +14,19 @@ cd token-reducer && ./setup.sh        # check → install missing → verify →
 
 Full step-by-step runbook (and the non-Claude-Code adapters): **[SETUP.md](./SETUP.md)**.
 
+### Pick your platform
+
+| Script | Platform | What it sets up |
+|---|---|---|
+| `setup.sh` | **macOS** (Apple Silicon) | Full Claude Code token stack + Ollama (MLX) |
+| `setup-linux.sh` | **Linux** (apt / dnf / pacman, auto-detected) | Same full stack; Ollama via official install.sh + systemd |
+| `setup-cachyos-llamacpp.sh` | **CachyOS / Arch + NVIDIA** (e.g. RTX 3060, 6 GB) | *No Claude Code* — a local coding model via **llama.cpp (CUDA)** wired into **Zed** |
+| `uninstall.sh` | macOS / Linux | Tiered revert (config-only by default; `--all` for full teardown) |
+
+All accept `check` · `verify` · `--dry-run`. Run `check` first. **`setup-linux.sh` reuses `setup.sh`,
+so keep them together (clone the whole repo).** The Linux + CachyOS scripts are syntax-checked but
+**not yet tested on that hardware** — run `check` / `--dry-run` first and report issues.
+
 ---
 
 ## The problem

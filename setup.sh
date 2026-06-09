@@ -970,6 +970,9 @@ trap cleanup EXIT
 # ============================================================================
 # MAIN
 # ============================================================================
+# When sourced with TR_SOURCE_ONLY=1 (e.g. by setup-linux.sh) define everything but don't run —
+# the sourcing script reuses these functions and drives its own main. Normal runs are unaffected.
+if [ -z "${TR_SOURCE_ONLY:-}" ]; then
 for a in "$@"; do case "$a" in
   check) MODE=check ;;
   verify) MODE=verify ;;
@@ -996,3 +999,4 @@ case "$MODE" in
     finish
     ;;
 esac
+fi  # end TR_SOURCE_ONLY guard
