@@ -8,7 +8,13 @@
 #   ./setup-cachyos-llamacpp.sh check     # read-only inventory
 #   ./setup-cachyos-llamacpp.sh verify    # smoke tests only
 #   ./setup-cachyos-llamacpp.sh --3b      # use the smaller 3B model (comfortable in 6GB)
+#   ./setup-cachyos-llamacpp.sh --prebuilt# use a community prebuilt CUDA binary (no compile;
+#                                         #   third-party/unsigned) instead of repo/AUR/source
 #   ./setup-cachyos-llamacpp.sh --dry-run # print actions, change nothing
+#
+# NOTE on llama.cpp: there is NO official prebuilt CUDA binary for Linux. On Arch/CachyOS the
+# CUDA build comes from the AUR (which compiles) or source. This script prefers a signed repo
+# package, then the AUR helper, then source — so a compile is expected unless --prebuilt is used.
 #
 # WRITTEN FOR Arch/CachyOS + NVIDIA; syntax-checked but UNTESTED on that hardware.
 # Run `check` first; sudo/AUR/pacman prompts are shown (not hidden).
@@ -29,7 +35,7 @@ REPO_3B="bartowski/Qwen2.5-Coder-3B-Instruct-GGUF"; FILE_3B="Qwen2.5-Coder-3B-In
 REPO="$REPO_7B"; FILE="$FILE_7B"; WHICH=7B
 ZED_SETTINGS="$HOME/.config/zed/settings.json"
 LOG="${TMPDIR:-/tmp}/cachyos-llamacpp-setup.log"
-DRY_RUN=0; MODE=install
+DRY_RUN=0; MODE=install; PREBUILT=0
 
 if [ -t 1 ]; then B=$'\e[1m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; C=$'\e[36m'; X=$'\e[0m'; else B=; G=; Y=; R=; C=; X=; fi
 : > "$LOG"
@@ -46,6 +52,7 @@ server_up(){ curl -sf "http://$HOSTADDR:$PORT/health" >/dev/null 2>&1 || curl -s
 
 for a in "$@"; do case "$a" in
   check) MODE=check ;; verify) MODE=verify ;; --dry-run) DRY_RUN=1 ;;
+  --prebuilt) PREBUILT=1 ;;
   --3b) REPO="$REPO_3B"; FILE="$FILE_3B"; WHICH=3B; CTX=8192 ;;
   -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
 esac; done
@@ -69,15 +76,27 @@ do_check(){
 }
 
 # ---- install llama.cpp (package → AUR → source build with CUDA) -------------
+prebuilt_aidock(){  # opt-in community prebuilt CUDA binary — THIRD-PARTY, unsigned
+  warn "fetching a third-party prebuilt CUDA binary (ai-dock/llama.cpp-cuda) — not official or signed."
+  local url; url=$(curl -fsSL https://api.github.com/repos/ai-dock/llama.cpp-cuda/releases/latest 2>/dev/null | grep -oE 'https://[^"]+cuda[^"]*(amd64|x86_64)[^"]*\.tar\.gz' | head -1)
+  [ -n "$url" ] || { warn "no matching ai-dock CUDA x86_64 asset found"; return 1; }
+  local d; d="$(mktemp -d)"; mkdir -p "$HOME/.local/bin"
+  curl -fL "$url" -o "$d/ll.tgz" >>"$LOG" 2>&1 && tar -xzf "$d/ll.tgz" -C "$d" >>"$LOG" 2>&1 || { warn "download/extract failed"; return 1; }
+  local bin; bin="$(find "$d" -type f -name llama-server | head -1)"
+  [ -n "$bin" ] && install -m755 "$bin" "$HOME/.local/bin/llama-server" && { warn "installed to ~/.local/bin — ensure it's on your PATH"; return 0; } || return 1
+}
+
 phase_llamacpp(){
   step "llama.cpp (CUDA)"
   if have llama-server; then ok "llama-server already installed"; return 0; fi
-  [ "$DRY_RUN" = 1 ] && { act "install llama.cpp-cuda (pacman/AUR) or build with -DGGML_CUDA=ON"; return 0; }
-  if pacman -Si llama.cpp-cuda >/dev/null 2>&1; then act "pacman llama.cpp-cuda"; sudo pacman -S --needed --noconfirm llama.cpp-cuda
-  elif have yay;  then act "AUR (yay) llama.cpp-cuda";  yay  -S --needed --noconfirm llama.cpp-cuda
-  elif have paru; then act "AUR (paru) llama.cpp-cuda"; paru -S --needed --noconfirm llama.cpp-cuda
+  [ "$DRY_RUN" = 1 ] && { act "install llama.cpp-cuda (repo → ${PREBUILT:+prebuilt → }AUR → source build)"; return 0; }
+  # No OFFICIAL prebuilt CUDA binary for Linux — repo/AUR compile, or source. Build is expected.
+  if pacman -Si llama.cpp-cuda >/dev/null 2>&1; then act "repo package: llama.cpp-cuda"; sudo pacman -S --needed --noconfirm llama.cpp-cuda
+  elif [ "$PREBUILT" = 1 ] && prebuilt_aidock; then ok "installed community prebuilt binary"
+  elif have paru; then warn "no signed repo package — building via AUR (paru); this can take several minutes"; paru -S --needed --noconfirm llama.cpp-cuda
+  elif have yay;  then warn "no signed repo package — building via AUR (yay); this can take several minutes"; yay -S --needed --noconfirm llama.cpp-cuda
   else
-    warn "no llama.cpp package/AUR helper — building from source with CUDA"
+    warn "no repo/AUR package — building from source with CUDA (slow; pulls the CUDA toolkit). Tip: re-run with --prebuilt for a no-compile community binary."
     sudo pacman -S --needed --noconfirm base-devel cmake git cuda || warn "couldn't install build deps"
     local src="$HOME/.local/src/llama.cpp"
     [ -d "$src" ] || git clone --depth 1 https://github.com/ggml-org/llama.cpp "$src"
