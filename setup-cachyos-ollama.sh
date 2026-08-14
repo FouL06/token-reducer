@@ -156,9 +156,9 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from
 import { dirname } from "node:path";
 const f = process.env.ZED_FILE, ctx = Number(process.env.ZCTX), tuned = process.env.TUNED;
 const prov = { api_url: process.env.OLLAMA_URL, available_models: [
-  { name: tuned, display_name: "Qwen2.5-Coder 7B Tuned (local, 8k ctx)", max_tokens: ctx, supports_tools: true },
-  { name: "qwen2.5-coder:7b", display_name: "Qwen2.5-Coder 7B (local)", max_tokens: ctx, supports_tools: true },
-  { name: "qwen2.5-coder:3b", display_name: "Qwen2.5-Coder 3B (local, fast)", max_tokens: ctx, supports_tools: true },
+  { name: tuned, display_name: "Qwen2.5-Coder 7B Tuned (local, 8k ctx)", max_tokens: ctx, supports_tools: false },
+  { name: "qwen2.5-coder:7b", display_name: "Qwen2.5-Coder 7B (local)", max_tokens: ctx, supports_tools: false },
+  { name: "qwen2.5-coder:3b", display_name: "Qwen2.5-Coder 3B (local, fast)", max_tokens: ctx, supports_tools: false },
 ]};
 let s = {};
 if (existsSync(f)) { copyFileSync(f, f + ".bak." + Date.now());
