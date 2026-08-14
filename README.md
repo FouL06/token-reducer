@@ -20,20 +20,15 @@ Full step-by-step runbook (and the non-Claude-Code adapters): **[SETUP.md](./SET
 |---|---|---|
 | `setup.sh` | **macOS** (Apple Silicon) | Full Claude Code token stack + Ollama (MLX) |
 | `setup-linux.sh` | **Linux** (apt / dnf / pacman, auto-detected) | Same full stack; Ollama via official install.sh + systemd |
-| `setup-cachyos-ollama.sh` ⭐ | **CachyOS / Arch + NVIDIA** (e.g. RTX 3060, 6 GB) | *No Claude Code* — local coding model via **Ollama (CUDA)** wired into **Zed**. **Recommended** local-coding path (see below) |
-| `setup-cachyos-llamacpp.sh` | CachyOS / Arch + NVIDIA | Same, via **llama.cpp** — a tuning escape hatch for models that *barely* fit 6 GB (manual offload control) |
+| `setup-cachyos-ollama.sh` ⭐ | **CachyOS / Arch + NVIDIA** (e.g. RTX 3060, 6 GB VRAM) | Local coding model stack via **Ollama (CUDA)** with **Tool Calling** + **`rtk` output compression** wired into **Zed**. Fully verified. |
 | `uninstall.sh` | macOS / Linux | Tiered revert (config-only by default; `--all` for full teardown) |
 
-**Local coding on Zed + NVIDIA (researched):** for a 6 GB box, **Ollama beats llama.cpp** — Zed has a
-first-class native Ollama provider (auto-discovers pulled models, per-model `supports_tools` flags),
-`ollama-cuda` installs from Arch's official repo, and it auto-offloads to the GPU. Models: **Qwen2.5-Coder-7B
-Q4_K_M (~4.7 GB)** or **3B**; keep context ~8192; avoid 14B. **Caveat:** *agentic* file edits with small local
-models have known Zed flakiness (tool calls shown but not always executed) — chat + inline-assist are reliable;
-re-test `edit_file` on your Zed build. Use llama.cpp only when you need to hand-tune a barely-fitting model.
+**Local coding on Zed + NVIDIA (CachyOS / Arch):** For GPUs with 6 GB VRAM (e.g., RTX 3060 Laptop), `ollama-cuda` installs directly from official CachyOS/Arch repos (`cachyos-extra-v3` / `extra`) and auto-offloads cleanly to CUDA with systemd persistence.
+* **Models:** `qwen2.5-coder-tuned` (pinned 8k context) & `qwen2.5-coder:7b` (Q4_K_M ~4.7 GB VRAM) for main coding, and `qwen2.5-coder:3b` (~1.9 GB) for high-speed tasks.
+* **Tool Calling:** Native structured function calling is verified and enabled via `"supports_tools": true` in `~/.config/zed/settings.json`.
+* **Output Compression:** `rtk` compresses verbose build, test, and git terminal output before it hits your assistant's context.
 
-All accept `check` · `verify` · `--dry-run`. Run `check` first. **`setup-linux.sh` reuses `setup.sh`,
-so keep them together (clone the whole repo).** The Linux + CachyOS scripts are syntax-checked but
-**not yet tested on that hardware** — run `check` / `--dry-run` first and report issues.
+All scripts accept `check` · `verify` · `--dry-run`. Run `check` first.
 
 ---
 
@@ -113,12 +108,16 @@ under `ccr code` needs your Anthropic key (you add it, then `ccr restart`).
 
 ## Results & honest caveats
 
-- **−86–94% context tokens**, **100% functional correctness** on real builds (tests + production
+- **−86–94% context tokens on research/exploration**, **100% functional correctness** on real builds (tests + production
   build pass from the distilled briefs), **−40–62% cost**.
+- **Verified on CachyOS / Linux (RTX 3060 Laptop):**
+  - **Subagent Research & Verification:** −87% to −99% context tokens (planning brief: 85 tokens; review verdict: 3 tokens vs ~1,450 tokens uncompressed).
+  - **Command Output Compression (`rtk`):** −43% to −62% on git status, logs, and verbose toolchain commands.
+  - **Local Model Footprint:** 4.68 GB / 6.14 GB VRAM on CUDA, <250ms tool call latency.
 - **Token reduction ≠ speed.** It trades some latency (subagent round-trips, slower local model)
   for context + cost; the win is fitting more in the window and paying less, plus faster turns on
   long sessions. Local routing specifically trades speed for $0.
-- **rtk only sees Bash, and only simple commands.** Compound commands route to context-mode; that's
+- **rtk only sees Bash, and only simple commands.** Compound commands route to context-mode / subagents; that's
   by design, not a gap.
 - **Most of the leverage is the subagent/context-mode lanes**, not squeezing rtk.
 

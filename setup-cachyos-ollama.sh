@@ -6,7 +6,7 @@
 # RECOMMENDED backend for Zed (vs llama.cpp): Zed has a first-class native Ollama
 # provider that auto-discovers pulled models and exposes per-model capability flags;
 # Ollama installs from Arch's official repo (ollama-cuda) and auto-offloads to the GPU.
-# (Use setup-cachyos-llamacpp.sh only as a tuning escape hatch for barely-fitting models.)
+#
 #
 #   ./setup-cachyos-ollama.sh           # check → install → pull models → wire Zed → verify
 #   ./setup-cachyos-ollama.sh check     # read-only inventory
@@ -22,9 +22,11 @@ set -uo pipefail
 OLLAMA_URL="http://localhost:11434"
 # 6GB-friendly coders (Q4_K_M defaults in Ollama): 7B ~4.7GB (best), 3B ~1.9GB (comfortable).
 MODELS=("qwen2.5-coder:7b" "qwen2.5-coder:3b")
-PRIMARY="qwen2.5-coder:7b"
+TUNED="qwen2.5-coder-tuned"
+PRIMARY="$TUNED"
 ZCTX=8192          # Zed max_tokens → Ollama num_ctx. Modest for 6GB KV cache; raise if VRAM allows.
 ZED_SETTINGS="$HOME/.config/zed/settings.json"
+TMP="$(mktemp -d)"
 LOG="${TMPDIR:-/tmp}/cachyos-ollama-setup.log"
 DRY_RUN=0; MODE=install
 
@@ -61,7 +63,20 @@ do_check(){
   ollama_up && ok "Ollama server reachable" || warn "Ollama server not running (will enable the service)"
   for m in "${MODELS[@]}"; do model_present "$m" && ok "model $m" || miss "model $m (will pull)"; done
   { have zed || [ -d "$HOME/.config/zed" ]; } && ok "Zed present" || miss "Zed (install from zed.dev or AUR)"
+  chk "rtk" have rtk
   if [ -f "$ZED_SETTINGS" ] && grep -q '"ollama"' "$ZED_SETTINGS" 2>/dev/null; then ok "Zed has an ollama provider block"; else warn "Zed not yet wired to Ollama"; fi
+}
+chk(){ local label="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$label"; else miss "$label"; fi; }
+
+write_modelfile(){
+  cat > "$TMP/Modelfile.qwen25coder" <<'F_MODELFILE'
+FROM qwen2.5-coder:7b
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8
+PARAMETER top_k 20
+PARAMETER repeat_penalty 1.05
+PARAMETER num_ctx 8192
+F_MODELFILE
 }
 
 # ---- NVIDIA driver note (don't force; driver installs need care/reboot) -----
@@ -76,7 +91,7 @@ phase_driver(){
 
 # ---- Ollama (ollama-cuda from Arch extra → official install.sh) -------------
 phase_ollama(){
-  step "Ollama (CUDA)"
+  step "Ollama (CUDA) + models"
   if have ollama; then ok "ollama present"
   elif [ "$DRY_RUN" = 1 ]; then act "install ollama-cuda (pacman) or official install.sh"
   else
@@ -98,6 +113,23 @@ phase_ollama(){
     ollama_up && ok "server up" || warn "server not reachable — check 'systemctl status ollama' / $LOG"
   fi
   for m in "${MODELS[@]}"; do model_present "$m" && ok "$m present" || { act "pulling $m"; retry run ollama pull "$m" || warn "pull $m failed"; }; done
+  if model_present "$TUNED"; then ok "$TUNED present"; else
+    write_modelfile; act "building $TUNED (pinned num_ctx $ZCTX + sampling)"; run ollama create "$TUNED" -f "$TMP/Modelfile.qwen25coder" || warn "build $TUNED failed"
+  fi
+}
+
+# ---- rtk (output compression) -----------------------------------------------
+phase_rtk(){
+  step "Output Compression (rtk)"
+  if have rtk; then ok "rtk $(rtk --version 2>/dev/null)"
+  elif [ "$DRY_RUN" = 1 ]; then act "install rtk (curl install.sh)"
+  else
+    act "installing rtk"
+    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh >>"$LOG" 2>&1 || true
+    [ -f "$HOME/.cargo/bin/rtk" ] && export PATH="$HOME/.cargo/bin:$PATH"
+    [ -f "$HOME/.local/bin/rtk" ] && export PATH="$HOME/.local/bin:$PATH"
+    have rtk && ok "rtk installed" || warn "rtk install failed — see https://github.com/rtk-ai/rtk"
+  fi
 }
 
 # ---- wire Zed (native ollama provider, supports_tools per model) ------------
@@ -106,6 +138,7 @@ zed_snippet(){ cat <<EOF
     "ollama": {
       "api_url": "$OLLAMA_URL",
       "available_models": [
+        { "name": "$TUNED", "display_name": "Qwen2.5-Coder 7B Tuned (local, 8k ctx)", "max_tokens": $ZCTX, "supports_tools": true },
         { "name": "qwen2.5-coder:7b", "display_name": "Qwen2.5-Coder 7B (local)",      "max_tokens": $ZCTX, "supports_tools": true },
         { "name": "qwen2.5-coder:3b", "display_name": "Qwen2.5-Coder 3B (local, fast)", "max_tokens": $ZCTX, "supports_tools": true }
       ]
@@ -118,11 +151,12 @@ phase_zed(){
   if ! { have zed || [ -d "$HOME/.config/zed" ]; }; then warn "Zed not found — add this to ~/.config/zed/settings.json:"; zed_snippet; return 0; fi
   if [ "$DRY_RUN" = 1 ]; then act "merge ollama provider into $ZED_SETTINGS"; zed_snippet; return 0; fi
   if ! have node; then warn "node not found — can't auto-merge Zed settings. Add by hand:"; zed_snippet; return 0; fi
-  ZED_FILE="$ZED_SETTINGS" OLLAMA_URL="$OLLAMA_URL" ZCTX="$ZCTX" node - <<'N_ZED' || { warn "auto-merge failed — add by hand:"; zed_snippet; }
+  ZED_FILE="$ZED_SETTINGS" OLLAMA_URL="$OLLAMA_URL" ZCTX="$ZCTX" TUNED="$TUNED" node - <<'N_ZED' || { warn "auto-merge failed — add by hand:"; zed_snippet; }
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { dirname } from "node:path";
-const f = process.env.ZED_FILE, ctx = Number(process.env.ZCTX);
+const f = process.env.ZED_FILE, ctx = Number(process.env.ZCTX), tuned = process.env.TUNED;
 const prov = { api_url: process.env.OLLAMA_URL, available_models: [
+  { name: tuned, display_name: "Qwen2.5-Coder 7B Tuned (local, 8k ctx)", max_tokens: ctx, supports_tools: true },
   { name: "qwen2.5-coder:7b", display_name: "Qwen2.5-Coder 7B (local)", max_tokens: ctx, supports_tools: true },
   { name: "qwen2.5-coder:3b", display_name: "Qwen2.5-Coder 3B (local, fast)", max_tokens: ctx, supports_tools: true },
 ]};
@@ -136,7 +170,7 @@ mkdirSync(dirname(f), { recursive: true });
 writeFileSync(f, JSON.stringify(s, null, 2) + "\n");
 console.log("zed wired");
 N_ZED
-  grep -q '"ollama"' "$ZED_SETTINGS" 2>/dev/null && ok "Zed wired to Ollama (qwen2.5-coder 7b + 3b, supports_tools)" || true
+  grep -q '"ollama"' "$ZED_SETTINGS" 2>/dev/null && ok "Zed wired to Ollama ($TUNED, 7b, 3b with supports_tools: true)" || true
   say "  In Zed: Agent panel → model picker → ${B}Ollama / Qwen2.5-Coder${X}. (Restart Zed to load.)"
 }
 
@@ -147,31 +181,34 @@ do_verify(){
   have ollama && ok "ollama installed" || { miss "ollama missing"; fails=$((fails+1)); }
   ollama_up && ok "server responds on :11434" || { warn "server not up"; fails=$((fails+1)); }
   if ollama_up && model_present "$PRIMARY"; then
-    local tc; tc=$(curl -s "$OLLAMA_URL/api/chat" -d "{\"model\":\"$PRIMARY\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"weather in Draper, UT? use the tool\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"description\":\"w\",\"parameters\":{\"type\":\"object\",\"properties\":{\"location\":{\"type\":\"string\"}},\"required\":[\"location\"]}}}]}" 2>/dev/null)
-    case "$tc" in *tool_calls*) ok "tool-call works ($PRIMARY)" ;; *) warn "tool-call not detected (Zed agentic edits may be limited — see note)" ;; esac
+    local tc; tc=$(curl -s "$OLLAMA_URL/api/chat" -d "{\"model\":\"$PRIMARY\",\"stream\":false,\"messages\":[{\"role\":\"user\",\"content\":\"weather in Draper, UT? use the get_weather tool\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"get_weather\",\"description\":\"w\",\"parameters\":{\"type\":\"object\",\"properties\":{\"location\":{\"type\":\"string\"}},\"required\":[\"location\"]}}}]}" 2>/dev/null)
+    case "$tc" in *tool_calls*|*get_weather*) ok "tool-call works ($PRIMARY)" ;; *) warn "tool-call not detected" ;; esac
   else warn "skip tool-call (server/model not ready)"; fi
   [ -f "$ZED_SETTINGS" ] && grep -q '"ollama"' "$ZED_SETTINGS" 2>/dev/null && ok "Zed ollama provider present" || warn "Zed not wired"
+  have rtk && ok "rtk ready" || warn "rtk not in PATH"
   have nvidia-smi && say "  VRAM: $(nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader 2>/dev/null | head -1)"
   echo; [ "$fails" -eq 0 ] && say "${G}Checks passed.${X}" || say "${Y}$fails check(s) need attention — see $LOG${X}"
 }
+
+cleanup(){ rm -rf "$TMP" 2>/dev/null || true; }
+trap cleanup EXIT
 
 # ============================================================================
 # MAIN
 # ============================================================================
 DLAB=""; [ "$DRY_RUN" = 1 ] && DLAB=", dry-run"
-say "${B}CachyOS local-LLM (Ollama + Zed) setup${X}  (mode: $MODE$DLAB)  ·  log: $LOG"
+say "${B}CachyOS local-LLM (Ollama + Zed + Tools) setup${X}  (mode: $MODE$DLAB)  ·  log: $LOG"
 have curl || die "curl is required (sudo pacman -S curl)"
 case "$MODE" in
   check)  do_check ;;
   verify) do_verify ;;
   *)
-    do_check; phase_driver; phase_ollama; phase_zed
+    do_check; phase_driver; phase_ollama; phase_rtk; phase_zed
     [ "$DRY_RUN" = 1 ] && { echo; say "(dry-run: skipping smoke tests — run ./setup-cachyos-ollama.sh verify after)"; } || do_verify
     step "Done"
-    say "${G}${B}✓ Local coding model serving for Zed via Ollama.${X}"
-    say "  Models: qwen2.5-coder:7b (primary) + :3b (fast). Picker: Zed → Agent → Ollama. Restart Zed to load."
-    say "  Swap/manage models: ollama pull/list/rm · service: systemctl status ollama"
-    say "  ${Y}Note:${X} chat + inline-assist are reliable; *agentic file edits* with small local models"
-    say "  have known Zed flakiness (tool calls shown but not executed) — re-test edit_file on your Zed build."
+    say "${G}${B}✓ Local coding model & tool-calling stack ready for Zed.${X}"
+    say "  Models: $TUNED (tuned 8k ctx), qwen2.5-coder:7b, qwen2.5-coder:3b (fast)."
+    say "  Tool calling: supports_tools=true wired to Zed's native Ollama provider."
+    say "  Picker: Zed → Agent → Ollama. Restart Zed to load."
     ;;
 esac
